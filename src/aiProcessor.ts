@@ -19,7 +19,7 @@ export async function processWithAI(rawText: string): Promise<ProcessedQuestion[
   console.log("🤖 正在请求 Gemini AI 进行分析 (可能需要几十秒)...");
 
   const model = genAI.getGenerativeModel({
-    model: "gemini-1.5-flash",
+    model: "gemini-2.0-flash",
     generationConfig: {
       responseMimeType: "application/json" // 强制返回 JSON
     }
@@ -75,34 +75,46 @@ export async function processWithAI(rawText: string): Promise<ProcessedQuestion[
     ${rawText}
   `;
 
-  try {
-    const result = await model.generateContent(prompt);
-    let response = result.response.text();
-    response = response.replace(/```json/g, '').replace(/```/g, '').trim();
-    // 尝试解析 JSON，如果失败 catch 会捕获
-    const data = JSON.parse(response) as any[];
+  let times = 3;
+  while (times > 0) {
+    try {
+      const result = await model.generateContent(prompt);
+      let response = result.response.text();
 
-    // 简单清洗数据，确保符合接口定义
-    return data.map((item: any) => ({
-      text: item.text,
-      type: item.type === 'MULTIPLE_CHOICE' ? 'MULTIPLE_CHOICE' : 'SINGLE_CHOICE',
-      options: item.options.map((opt: any) => ({
-        id: randomUUID(),
-        text: opt.text,
-        label: opt.label ? opt.label.replace('.', '').trim().toUpperCase() : ''
-      })),
-      correctAnswerLabels: Array.isArray(item.correctAnswerLabels)
-        ? item.correctAnswerLabels.map((s: string) => s.trim().toUpperCase())
-        : (typeof item.correctAnswerLabels === 'string'
-          ? (item.correctAnswerLabels as string).split('').map(s => s.trim().toUpperCase())
-          : []),
-      explanation: item.explanation || "AI 自动解析"
-    }));
+      response = response.replace(/```json/g, '').replace(/```/g, '').trim();
 
-  } catch (error) {
-    console.error("AI 处理或 JSON 解析失败:", error);
-    // 需要调试
-    console.log("Raw Response:", error);
-    return [];
+      const data = JSON.parse(response) as any[];
+
+      return data.map((item: any) => ({
+        text: item.text,
+        type: item.type === 'MULTIPLE_CHOICE' ? 'MULTIPLE_CHOICE' : 'SINGLE_CHOICE',
+        options: item.options.map((opt: any) => ({
+          id: randomUUID(),
+          text: opt.text,
+          label: opt.label ? opt.label.replace('.', '').trim().toUpperCase() : ''
+        })),
+        correctAnswerLabels: Array.isArray(item.correctAnswerLabels)
+          ? item.correctAnswerLabels.map((s: string) => s.trim().toUpperCase())
+          : (typeof item.correctAnswerLabels === 'string'
+            ? (item.correctAnswerLabels as string).split('').map(s => s.trim().toUpperCase())
+            : []),
+        explanation: item.explanation || "AI 自动解析"
+      }));
+
+    } catch (error: any) {
+      // 捕获503或其他网络错误
+      const isOverloaded = error.message?.includes('503') || error.status === 503;
+
+      if (isOverloaded && times > 1) {
+        console.log(`⚠️ 服务器繁忙 (503)，正在等待 5 秒后重试... (剩余重试次数: ${times - 1})`);
+        await new Promise(resolve => setTimeout(resolve, 5000)); // 等待 5 秒
+        times--;
+      } else {
+        console.error("❌ AI 处理最终失败:", error.message || error);
+        // 如果不是 503，或者重试次数用尽，则退出
+        return [];
+      }
+    }
   }
+  return [];
 }
