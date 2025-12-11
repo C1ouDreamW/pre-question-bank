@@ -1,10 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import dotenv from 'dotenv';
 import { randomUUID } from 'crypto';
-
-dotenv.config();
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 // 定义我们期望 AI 返回的数据结构
 export interface ProcessedQuestion {
@@ -15,106 +9,149 @@ export interface ProcessedQuestion {
   explanation?: string;
 }
 
-export async function processWithAI(rawText: string): Promise<ProcessedQuestion[]> {
-  console.log("🤖 正在请求 Gemini AI 进行分析 (可能需要几十秒)...");
+function splitTextIntoChunks(text: string, chunkSize: number = 2000, overlap: number = 200): string[] {
+  const lines = text.split('\n');
+  const chunks: string[] = [];
+  let currentChunkLines: string[] = [];
+  let currentLength = 0;
 
-  const model = genAI.getGenerativeModel({
-    model: "gemini-2.0-flash",
-    generationConfig: {
-      responseMimeType: "application/json" // 强制返回 JSON
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] + '\n';
+    currentChunkLines.push(line);
+    currentLength += line.length;
+
+    // 当当前块足够大时
+    if (currentLength >= chunkSize) {
+      chunks.push(currentChunkLines.join(''));
+
+      // 保留当前块的最后几行作为下一块的开头
+      const linesToKeep = 5;
+      if (currentChunkLines.length > linesToKeep) {
+        currentChunkLines = currentChunkLines.slice(-linesToKeep);
+        currentLength = currentChunkLines.join('').length;
+      } else {
+        // 如果块本身就很短，就全清空
+        currentChunkLines = [];
+        currentLength = 0;
+      }
     }
-  });
+  }
+
+  if (currentChunkLines.length > 0) {
+    chunks.push(currentChunkLines.join(''));
+  }
+
+  return chunks;
+}
+
+async function processChunk(chunkText: string, chunkIndex: number, totalChunks: number): Promise<any[]> {
+  const OLLAMA_URL = 'http://localhost:11434/api/chat';
+  const MODEL_NAME = 'qwen2.5';
+
+  console.log(`⏳ [${chunkIndex + 1}/${totalChunks}] 正在分析第 ${chunkIndex + 1} 部分...`);
 
   const prompt = `
-    你是一个专业的试题数据清洗专家。你的任务是将从 Word 文档提取的非结构化文本，转换为符合数据库规范的结构化 JSON 数据。
+    你是一个专业的试题数据清洗专家。你的任务是从文本中提取题目。
+    ### 核心指令：
+    1. 提取文本当中出现的**所有**选择题。
+    2. **忽略标题和前言**：文档开头可能有标题或说明，请直接跳过它们，寻找后面的题目。
+    3. **不要遗漏**：尽可能多地提取！即使题目看起来格式不完美也要提取。
+    4. 严格输出 JSON 数组。
 
-    ### 核心任务：
-    请分析传入的文本，提取所有题目，并严格按照下方的 [JSON 输出结构] 输出一个 JSON 数组。
-
-    ### 处理规则（非常重要）：
-    1.  **题目清洗（Text Cleaning）**：
-        * 如果题目中包含答案（例如括号内有字母 "Python是( A )语言" 或 "1. (C) 下列..."），**请务必将答案字母移除，保留空括号或空格**。
-        * 例如："1. (A) 这是题目" -> "1. ( ) 这是题目"； "我们要坚持(AB)原则" -> "我们要坚持( )原则"。
-        * 去除题目开头的非必要编号（如自动编号难以去除可保留，但尽量清洗）。
-
-    2.  **选项提取（Options）**：
-        * 识别 A. B. C. D. 等选项。
-        * **必须保留选项标号**（Label），这将用于后续程序映射数据库 ID。
-        * 选项内容（Text）中去掉开头的 "A." 或 "A、" 等标号。
-
-    3.  **答案匹配（Answer Matching）**：
-        * **全文档搜索**：正确答案可能在题目括号里、题目紧随其后、或者文档的最末尾（常见的答案表）。
-        * **多源验证**：如果题目里有答案，文档末尾也有答案表，以题目里的为准（或者你认为更可信的那个）。
-        * **输出格式**：correctAnswerLabels 必须是数组，例如单选 ["A"]，多选 ["A", "B", "D"]。
-
-    4.  **题型判断（Type Detection）**：
-        * 如果正确答案包含多个选项（如 AB），或者题干包含“多选”、“复选”字样，type 设为 "MULTIPLE_CHOICE"。
-        * 否则默认为 "SINGLE_CHOICE"。
-
-    5.  **解析生成（Explanation）**：
-        * 如果文中包含“解析：”、“详解：”等内容，请提取。
-        * 如果未找到解析，请根据题目知识点和正确答案，**自动生成**一句简短、专业的解析。
-
-    ### JSON 输出结构（Strict Schema）：
-    请直接输出 JSON 数组，**不要包含** \`\`\`json markdown 标记，只输出纯文本 JSON。
-
+    ### JSON 输出结构：
     [
       {
-        "text": "题目内容（已清洗，去除了括号内的答案）",
+        "text": "题目内容",
         "type": "SINGLE_CHOICE" | "MULTIPLE_CHOICE",
-        "options": [
-          { "label": "A", "text": "选项A的内容" },
-          { "label": "B", "text": "选项B的内容" }
-        ],
-        "correctAnswerLabels": ["A", "C"],
-        "explanation": "这是解析内容"
+        "options": [{ "label": "A", "text": "选项内容" }],
+        "correctAnswerLabels": ["A"],
+        "explanation": "解析"
       }
     ]
 
     ### 待处理文本：
-    ${rawText}
+    ${chunkText}
   `;
 
-  let times = 3;
-  while (times > 0) {
+  try {
+    const response = await fetch(OLLAMA_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: MODEL_NAME,
+        messages: [{ role: 'user', content: prompt }],
+        format: 'json',
+        stream: false,
+        options: { num_ctx: 4096, temperature: 0.1 }
+      }),
+    });
+
+    if (!response.ok) throw new Error(`Ollama Error: ${response.statusText}`);
+
+    const json = await response.json();
+    let content = json.message.content.replace(/```json/g, '').replace(/```/g, '').trim();
+
+    let data;
     try {
-      const result = await model.generateContent(prompt);
-      let response = result.response.text();
+      data = JSON.parse(content);
+    } catch (e) {
+      console.warn(`⚠️ 第 ${chunkIndex + 1} 部分 JSON 解析失败，跳过`);
+      return [];
+    }
 
-      response = response.replace(/```json/g, '').replace(/```/g, '').trim();
+    if (!Array.isArray(data)) {
+      if (data.questions && Array.isArray(data.questions)) data = data.questions;
+      else if (data.items && Array.isArray(data.items)) data = data.items;
+      else data = [data];
+    }
+    return data;
 
-      const data = JSON.parse(response) as any[];
+  } catch (error) {
+    console.error(`❌ 第 ${chunkIndex + 1} 部分处理出错:`, error);
+    return [];
+  }
+}
 
-      return data.map((item: any) => ({
-        text: item.text,
-        type: item.type === 'MULTIPLE_CHOICE' ? 'MULTIPLE_CHOICE' : 'SINGLE_CHOICE',
-        options: item.options.map((opt: any) => ({
+export async function processWithAI(rawText: string): Promise<ProcessedQuestion[]> {
+  console.log("✂️ 正在将文本切分为片段进行批量处理...");
+
+  const chunks = splitTextIntoChunks(rawText, 3000);
+  console.log(`📦 共切分为 ${chunks.length} 个片段`);
+
+  let allQuestions: ProcessedQuestion[] = [];
+
+  for (let i = 0; i < chunks.length; i++) {
+    const chunkQuestions = await processChunk(chunks[i], i, chunks.length);
+
+    const mappedQuestions = chunkQuestions.map((item: any): ProcessedQuestion => {
+      let cleanText = String(item.text || "未知题目");
+
+      // 执行正则替换
+      cleanText = cleanText.replace(/[\(（]\s*[A-Z0-9\s,，、]+\s*[\)）]/gi, '（ ）');
+
+      return {
+        text: cleanText,
+        type: (item.type === 'MULTIPLE_CHOICE' ? 'MULTIPLE_CHOICE' : 'SINGLE_CHOICE') as 'SINGLE_CHOICE' | 'MULTIPLE_CHOICE',
+        options: Array.isArray(item.options) ? item.options.map((opt: any) => ({
           id: randomUUID(),
-          text: opt.text,
-          label: opt.label ? opt.label.replace('.', '').trim().toUpperCase() : ''
-        })),
+          text: String(opt.text || ""), // 选项内容也防一手
+          label: opt.label ? String(opt.label).replace(/[\.、]/g, '').trim().toUpperCase() : ''
+        })) : [],
         correctAnswerLabels: Array.isArray(item.correctAnswerLabels)
-          ? item.correctAnswerLabels.map((s: string) => s.trim().toUpperCase())
-          : (typeof item.correctAnswerLabels === 'string'
-            ? (item.correctAnswerLabels as string).split('').map(s => s.trim().toUpperCase())
+          ? item.correctAnswerLabels.map((s: any) => String(s).trim().toUpperCase())
+          : (typeof item.correctAnswerLabels === 'string' || typeof item.correctAnswerLabels === 'number'
+            ? String(item.correctAnswerLabels).split('').map(s => s.trim().toUpperCase())
             : []),
         explanation: item.explanation || "AI 自动解析"
-      }));
+      };
+    });
 
-    } catch (error: any) {
-      // 捕获503或其他网络错误
-      const isOverloaded = error.message?.includes('503') || error.status === 503;
+    const validQuestions = mappedQuestions.filter(q => q.text && q.options.length > 0);
+    allQuestions = allQuestions.concat(validQuestions);
 
-      if (isOverloaded && times > 1) {
-        console.log(`⚠️ 服务器繁忙 (503)，正在等待 5 秒后重试... (剩余重试次数: ${times - 1})`);
-        await new Promise(resolve => setTimeout(resolve, 5000)); // 等待 5 秒
-        times--;
-      } else {
-        console.error("❌ AI 处理最终失败:", error.message || error);
-        // 如果不是 503，或者重试次数用尽，则退出
-        return [];
-      }
-    }
+    console.log(`✅ 第 ${i + 1} 部分提取到 ${validQuestions.length} 道题目`);
   }
-  return [];
+
+  console.log(`🎉 全部处理完成！共提取 ${allQuestions.length} 道题目`);
+  return allQuestions;
 }

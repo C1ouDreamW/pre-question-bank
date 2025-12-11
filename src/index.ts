@@ -3,18 +3,7 @@ import { processWithAI } from './aiProcessor';
 import { uploadQuestions } from './uploader';
 import path from 'path';
 
-// 代理设置，使用 undici 的全局调度器
-import { setGlobalDispatcher, ProxyAgent } from 'undici';
-// 将7890修改为你实际的代理端口
-const PROXY_URL = process.env.HTTPS_PROXY || 'http://127.0.0.1:7890';
 
-try {
-  const dispatcher = new ProxyAgent(PROXY_URL);
-  setGlobalDispatcher(dispatcher);
-  console.log(`mb 使用代理连接: ${PROXY_URL}`);
-} catch (error) {
-  console.error('代理配置失败，请检查 undici 是否安装或端口是否正确');
-}
 
 //主函数
 
