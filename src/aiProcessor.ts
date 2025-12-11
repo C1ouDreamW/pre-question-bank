@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import dotenv from 'dotenv';
+import { randomUUID } from 'crypto';
 
 dotenv.config();
 
@@ -76,7 +77,8 @@ export async function processWithAI(rawText: string): Promise<ProcessedQuestion[
 
   try {
     const result = await model.generateContent(prompt);
-    const response = result.response.text();
+    let response = result.response.text();
+    response = response.replace(/```json/g, '').replace(/```/g, '').trim();
     // 尝试解析 JSON，如果失败 catch 会捕获
     const data = JSON.parse(response) as any[];
 
@@ -85,7 +87,7 @@ export async function processWithAI(rawText: string): Promise<ProcessedQuestion[
       text: item.text,
       type: item.type === 'MULTIPLE_CHOICE' ? 'MULTIPLE_CHOICE' : 'SINGLE_CHOICE',
       options: item.options.map((opt: any) => ({
-        id: Math.random().toString(36).substr(2, 9),
+        id: randomUUID(),
         text: opt.text,
         label: opt.label ? opt.label.replace('.', '').trim().toUpperCase() : ''
       })),

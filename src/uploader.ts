@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 import { ProcessedQuestion } from './aiProcessor';
+import { randomUUID } from 'crypto';
 
 dotenv.config();
 
@@ -20,7 +21,7 @@ export async function uploadQuestions(questions: ProcessedQuestion[], categoryNa
     const cleanOptions = q.options.map(opt => ({ id: opt.id, text: opt.text }));
 
     return {
-      id: Math.random().toString(36).substr(2, 9), // 生成最终入库 ID
+      id: randomUUID(),
       category: categoryName,
       type: q.type,
       text: q.text,

@@ -4,6 +4,10 @@ import { uploadQuestions } from './uploader';
 import path from 'path';
 
 async function main() {
+  if (!process.env.GEMINI_API_KEY || !process.env.SUPABASE_URL) {
+    console.error("❌ 错误: 环境变量未配置。请确保 .env 文件存在且包含 GEMINI_API_KEY 和 SUPABASE 配置。");
+    process.exit(1);
+  }
   // 获取命令行参数
   const args = process.argv.slice(2);
   if (args.length < 2) {
