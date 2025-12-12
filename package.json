@@ -1,15 +1,38 @@
 {
   "name": "pre-question-bank",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "刷题网站的题库批量导入工具 - 使用本地 Ollama qwen2.5 AI 自动清洗和导入试题",
+  "main": "src/index.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "ts-node src/index.ts"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "ai",
+    "ollama",
+    "qwen2.5",
+    "data-cleaning",
+    "supabase",
+    "questions",
+    "bulk-import",
+    "shuashuashua",
+    "education",
+    "typescript"
+  ],
+  "author": "C1ouDream <c1oudream.qwq@gmail.com>",
   "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/C1ouDreamW/pre-question-bank.git"
+  },
+  "bugs": {
+    "url": "https://github.com/C1ouDreamW/pre-question-bank/issues"
+  },
+  "homepage": "https://github.com/C1ouDreamW/pre-question-bank#readme",
+  "engines": {
+    "node": ">=14.0.0",
+    "npm": ">=6.0.0"
+  },
   "type": "commonjs",
   "devDependencies": {
     "@types/node": "^25.0.0",
@@ -17,11 +40,9 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.87.1",
     "dotenv": "^17.2.3",
     "glob": "^13.0.0",
-    "mammoth": "^1.11.0",
-    "undici": "^7.16.0"
+    "mammoth": "^1.11.0"
   }
 }
