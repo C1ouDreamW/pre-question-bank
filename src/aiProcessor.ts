@@ -249,7 +249,7 @@ export async function processWithAI(rawText: string): Promise<ProcessedQuestion[
             : (typeof item.correctAnswerLabels === 'string' || typeof item.correctAnswerLabels === 'number'
               ? String(item.correctAnswerLabels).split('').map(s => s.trim().toUpperCase()).filter(s => s.length > 0)
               : []),
-          explanation: item.explanation || "AI 自动解析"
+          explanation: item.explanation || "暂无解析，待定"
         };
 
         return question;
